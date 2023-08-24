@@ -1,0 +1,213 @@
+#include "loader.h"
+
+Elf32_Ehdr *ehdr;
+Elf32_Phdr *phdr;
+int fd;
+
+//Cleaning The Function
+void loader_cleanup()
+{
+  if (ehdr) {
+    free(ehdr);
+    ehdr = NULL; 
+    }
+
+    if (phdr) {
+    free(phdr);
+    phdr = NULL;
+    }
+}
+
+//Opening and reading the Binary content of the input file
+
+void stepone(){
+
+  // Allocate memory to store the binary content
+  ehdr =(Elf32_Ehdr*)malloc(sizeof(Elf32_Ehdr));
+  ssize_t ehdr_read =read(fd, ehdr, sizeof(Elf32_Ehdr));
+  phdr =(Elf32_Phdr*)malloc(sizeof(Elf32_Phdr) * ehdr->e_phnum);
+
+  // Read the binary content into the allocated memory
+  lseek(fd, ehdr->e_phoff, SEEK_SET);
+  ssize_t phdr_read =read(fd, phdr, sizeof(Elf32_Phdr)* ehdr->e_phnum);
+
+  //Error Checking in  memory allocation 
+
+  if (ehdr==NULL)
+  {
+    printf("Error found ! in  allocating memory for Elf32_Ehdr");
+    exit(1);
+  }
+
+  if (phdr==NULL)
+  {
+    printf("Error found ! in allocating memory for Elf32_Phdr");
+    exit(1);
+  }
+
+  //Error checking in Reading the memory 
+
+  if (ehdr_read !=sizeof(Elf32_Ehdr))
+  {
+    printf("Error found !in  reading Elf32_Ehdr");
+    exit(1);
+  }
+
+  if (phdr_read !=sizeof(Elf32_Phdr) * ehdr->e_phnum)
+  {
+    printf("Error found ! in reading Elf32_Phdr");
+    exit(1);
+  }
+
+}
+
+//Using the mmap function to allocate the memory
+
+void* stepthree(int i){
+
+  //Passing the required Parameters as per syntax
+
+  void *virtual_mem =mmap(
+  (void *)phdr[i].p_vaddr, phdr[i].p_memsz,PROT_READ
+  | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_FIXED,
+  fd, phdr[i].p_offset);
+
+  //Error checking is mmap function working fine or not
+
+  if (virtual_mem== MAP_FAILED) 
+  {
+    printf("Error found ! Something wrong in allocation of memory with mmap function");
+    close(fd);
+    exit(1);
+  }         
+  return virtual_mem;
+
+}
+
+//Navigating the entry Point address
+
+int stepfour(int a,int b){
+
+  //Process needed to reach entry_offset
+
+  int k= a-b; //
+  int e_offset =(size_t)(k);//K is the differnece between the entry point address and virtual  point address
+  return e_offset;
+}
+
+//Typecasting and Printing Result
+
+int stepfive(void *r, int v){
+  void*c=r;
+  size_t d= v;
+  void* b= c+d;
+  int (*searched_epoint)() = (int (*)())((char *)b);
+
+  //If entry point found then set the flag to 1
+  int flag = 1;
+
+  while(flag==1)
+  {
+    searched_epoint();
+    int start_result = searched_epoint();
+
+    //Checking the return value is coorect or not 
+    if(start_result==-1)
+   {
+    printf("Error found ! in executing searched_epoint");
+    exit(1);
+    }
+
+    printf("User _start return value = %d\n",start_result);
+    return flag;
+    break;
+  }
+
+}
+
+//Loading and runnning the executable File
+
+void load_and_run_elf(char **exe)
+{
+  fd =open(exe[1], O_RDONLY);
+
+   if (fd ==-1)
+  {
+    perror("Error Found ! in Opening file");
+    exit(1);
+  }
+
+  //Calling the required function as per step
+  stepone();
+
+  //Now iterating the phdr table to find the section
+  int flag =0;
+  int i=0;
+   
+  //Checking the condition whether the iteration that is to be done is under the condition or not
+  if (i >=ehdr->e_phnum) 
+  {
+    printf("Error Found ! In PT_LOAD section i.e not found");
+    exit(1);
+  }
+
+  while(i<ehdr->e_phnum)
+  {
+    if (flag ==1) break;
+
+    //Searching the PT_Load section
+
+    if (phdr[i].p_type ==PT_LOAD)
+    {
+    if (ehdr->e_entry >=phdr[i].p_vaddr )
+    {
+      if(ehdr->e_entry<(phdr[i].p_vaddr + phdr[i].p_memsz))
+      {
+
+      //Calling the mmap function
+
+      void *virtual_mem=stepthree(i);
+
+      //Checking the Flag Value
+      if (flag==0)
+      {
+      //Calling the Navagating function
+      
+      int e_offset= stepfour(ehdr->e_entry,phdr[i].p_vaddr);
+
+      if (e_offset < 0 || e_offset >= phdr[i].p_memsz)
+       {
+        printf( "Error Found !  Invalid entry offset\n");
+        exit(1);
+       }
+      
+      //Final result Function call
+      flag=stepfive(virtual_mem, e_offset);
+      }
+      }
+    }
+    }
+  i++;
+  }
+  //Error checking Whether file is closed or not 
+
+  if (close(fd) ==-1) 
+  {
+    printf("Error Found ! In closing file");
+  }
+  
+}
+
+int main(int argc, char **argv)
+{
+  if (argc !=2)
+  {
+    printf("Usage: %s <ELF Executable> \n", argv[0]);
+    exit(1);
+  }
+  
+  load_and_run_elf(argv);
+
+  loader_cleanup();
+  return 0;
+}
